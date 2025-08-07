@@ -237,9 +237,10 @@ class OCRService:
                             continue
 
                         # ถ้าเป็นเลขล้วนและความยาวไม่เกิน 4 ตัว ให้ถือว่าเป็นเลขป้าย
-                        if re.fullmatch(r'\d{1,4}', corrected):
-                            number_line = corrected
-                            logger.info(f"✔️ Detected number line: '{corrected}'")
+                        if re.fullmatch(r'\d{1,4}', corrected) or re.fullmatch(r'\d{2}[ก-ฮ]', corrected):
+                            corrected_number = self.smart_correct_number(corrected)
+                            number_line = corrected_number
+                            logger.info(f"✔️ Corrected number line: '{corrected}' -> '{corrected_number}'")
                             continue
 
                         # ถ้าเป็นข้อความที่ประกอบด้วยตัวอักษรไทย (ไม่น่าจะเป็นจังหวัด)
@@ -306,3 +307,24 @@ class OCRService:
         except Exception as e:
             logger.error(f"OCR extraction failed: {e}")
             return ""
+    def smart_correct_number(self, text: str) -> str:
+        """พยายามแก้ไขเลขทะเบียนที่ OCR อ่านผิด เช่น 66บ -> 660, 66 -> 660"""
+        if not text:
+            return text
+
+        # กรณีที่ตัวสุดท้ายไม่ใช่เลข แต่คล้ายเลข 0
+        if re.fullmatch(r'\d{2}[ก-ฮ]', text):
+            likely_zero = text[-1]
+            if likely_zero in {'บ', 'อ', 'ต', 'ฃ', 'ญ'}:
+                return text[:2] + '0'
+
+        # แค่ 2 ตัวเลข → น่าจะขาดศูนย์ท้าย
+        if re.fullmatch(r'\d{2}', text):
+            return text + '0'
+
+        # ตัวเลขที่มีตัวอักษรไทยที่คล้ายเลขอยู่ด้านหลัง เช่น 60อ → 600
+        if re.fullmatch(r'\d{2}[ก-ฮ]', text):
+            if text[-1] in {'อ', 'บ'}:
+                return text[:2] + '0'
+
+        return text

@@ -82,7 +82,7 @@ class LicensePlateDetector:
     #                                 if detection:
     #                                     detected_plates.append(detection)
             
-    #         # ปรับปรุงการสร้าง fallback regions
+    #         # ปรับปรุง fallback regions
     #         if not detected_plates:
     #             logger.warning(f"No detections from {self.model_type} model, creating enhanced fallback regions")
     #             detected_plates.extend(self._create_enhanced_fallback_regions(cv_image))
