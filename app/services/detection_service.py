@@ -49,68 +49,97 @@ class LicensePlateDetector:
         self.model = None
         self.model_type = "none"
     
-    # def detect_license_plates(self, image): # แบบที่ใช้ YOLO
-    #     try:
-    #         if self.model is None:
-    #             logger.error("No model available for detection")
-    #             return self._fallback_detection(image)
-            
-    #         cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    #         results = self.model(cv_image, conf=self.confidence_threshold, verbose=False)
-            
-    #         detected_plates = []
-            
-    #         for result in results:
-    #             boxes = result.boxes
-    #             if boxes is not None:
-    #                 for box in boxes:
-    #                     confidence = float(box.conf[0])
-    #                     class_id = int(box.cls[0])
-                        
-    #                     if self.model_type.startswith('custom'):
-    #                         if class_id == 0 and confidence >= self.confidence_threshold:
-    #                             detection = self._extract_detection(box, cv_image, confidence, 'custom')
-    #                             if detection:
-    #                                 detected_plates.append(detection)
-    #                     else:
-    #                         if confidence >= self.confidence_threshold:
-    #                             if class_id in [2, 5, 7]:  # car, bus, truck
-    #                                 vehicle_detections = self._extract_vehicle_regions(box, cv_image, confidence)
-    #                                 detected_plates.extend(vehicle_detections)
-    #                             else:
-    #                                 detection = self._extract_detection(box, cv_image, confidence, 'pretrained')
-    #                                 if detection:
-    #                                     detected_plates.append(detection)
-            
-    #         # ปรับปรุง fallback regions
-    #         if not detected_plates:
-    #             logger.warning(f"No detections from {self.model_type} model, creating enhanced fallback regions")
-    #             detected_plates.extend(self._create_enhanced_fallback_regions(cv_image))
-            
-    #         unique_detections = self._remove_duplicates(detected_plates)
-            
-    #         logger.info(f"Detection complete: {len(unique_detections)} regions using {self.model_type} model (threshold: {self.confidence_threshold})")
-    #         return unique_detections
-            
-    #     except Exception as e:
-    #         logger.error(f"Detection failed: {e}")
-    #         return self._fallback_detection(image)
-    def detect_license_plates(self, image): # แบบที่ไม่ใช้ YOLO
+    def detect_license_plates(self, image):  # YOLO version
         try:
-            # แปลงเป็น OpenCV format
-            cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            if self.model is None:
+                logger.error("No model available for detection")
+                return self._fallback_detection(image)
 
-            # ส่งภาพเต็มคืน โดยไม่ใช้ YOLO หรือ fallback regions ใด ๆ
-            logger.warning("🚫 Skipping YOLO and sending full image for OCR directly")
-            return [{
-                'bbox': [0, 0, cv_image.shape[1], cv_image.shape[0]],
-                'confidence': 1.0,
-                'image': cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB),
-                'source': 'full_image'
-            }]
+            cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            results = self.model(cv_image, conf=self.confidence_threshold, verbose=False)
+
+            detected_boxes = []
+
+            # เก็บ box ทั้งหมดพร้อม area
+            for result in results:
+                boxes = result.boxes
+                if boxes is not None:
+                    for box in boxes:
+                        confidence = float(box.conf[0])
+                        class_id = int(box.cls[0])
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        area = (x2 - x1) * (y2 - y1)
+
+                        detected_boxes.append({
+                            'box': (x1, y1, x2, y2),
+                            'confidence': confidence,
+                            'class_id': class_id,
+                            'area': area
+                        })
+
+            if not detected_boxes:
+                return self._fallback_detection(image)
+
+            # เลือก box ที่มีพื้นที่ใหญ่ที่สุด
+            selected_box = max(detected_boxes, key=lambda b: b['area'])
+            x1, y1, x2, y2 = selected_box['box']
+            confidence = selected_box['confidence']
+            class_id = selected_box['class_id']
+
+            # วาด label
+            labeled_img = cv_image.copy()
+            cv2.rectangle(labeled_img, (x1, y1), (x2, y2), (0,255,0), 2)
+            cv2.putText(labeled_img, f"ID:{class_id} Conf:{confidence:.2f}", 
+                        (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
+            cv2.imshow("Labeled Detection", labeled_img)
+            cv2.waitKey(0)
+
+            # crop detection
+            crop = cv_image[y1:y2, x1:x2]
+            cv2.imshow("Cropped Plate", crop)
+            cv2.waitKey(0)
+
+            detected_plates = [{'image': crop, 'class_id': class_id, 'confidence': confidence}]
+            cv2.destroyAllWindows()
+            return detected_plates
+
         except Exception as e:
             logger.error(f"Detection failed: {e}")
-            return []
+            return self._fallback_detection(image)
+    
+    # def detect_license_plates(self, image): # unYOLO version
+    #     """
+    #     ตรวจจับป้ายทะเบียน (แบบไม่ใช้ YOLO)
+    #     ส่ง full image ให้ OCR พร้อม return_province
+    #     คืนค่า list ของ dict ที่มี plate_text และ province
+    #     """
+    #     try:
+    #         # แปลงเป็น OpenCV format
+    #         cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+    #         # ส่งภาพเต็มคืน โดยไม่ใช้ YOLO
+    #         logger.warning("🚫 Skipping YOLO and sending full image for OCR directly")
+    #         region = {
+    #             'bbox': [0, 0, cv_image.shape[1], cv_image.shape[0]],
+    #             'confidence': 1.0,
+    #             'image': cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB),
+    #             'source': 'full_image'
+    #         }
+
+    #         # เรียก OCR พร้อม return_province=True
+    #         if hasattr(self, 'ocr_service') and self.ocr_service is not None:
+    #             plate_text, province = self.ocr_service.extract_text(region['image'], return_province=True)
+    #             region['plate_text'] = plate_text
+    #             region['province'] = province
+    #         else:
+    #             region['plate_text'] = ""
+    #             region['province'] = None
+
+    #         return [region]
+
+    #     except Exception as e:
+    #         logger.error(f"Detection failed: {e}")
+    #         return []
     
     def _extract_detection(self, box, cv_image, confidence, model_type):
         """Extract detection data from bounding box"""
