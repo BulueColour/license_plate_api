@@ -6,7 +6,6 @@ import easyocr
 import re
 import cv2
 import numpy as np
-from PIL import Image
 import logging
 import difflib
 
@@ -85,8 +84,9 @@ class OCRService:
         text = text.strip()
         if text in self.COMMON_CORRECTIONS:
             text = self.COMMON_CORRECTIONS[text]
+        # ลบเฉพาะอักขระที่ไม่ใช่ ไทย/เลข แต่เก็บสระและวรรณยุกต์ครบ
         text = re.sub(r'[^\u0E00-\u0E7F0-9]', '', text)
-        return text[:10]
+        return text[:15]  # เผื่อจังหวัดยาว
 
     def is_valid_license_plate(self, text):
         patterns = [
@@ -104,9 +104,9 @@ class OCRService:
         img_array = np.array(image) if isinstance(image, Image.Image) else image
         processed_images = self.preprocess_image(img_array)
 
-        letters_list = []  # [('กกก', confidence), ...]
-        digits_list = []   # [('999', confidence), ...]
-        province_candidate = ("", 0)  # (province_name, confidence)
+        letters_list = []
+        digits_list = []
+        province_candidate = ("", 0)
 
         for idx, img in enumerate(processed_images):
             results = self.reader.readtext(
@@ -136,19 +136,19 @@ class OCRService:
                     if digits_part:
                         digits_list.append((digits_part, conf))
 
-        # กรองตัวเลขให้ตรงรูปแบบทะเบียนและไม่เกิน 4 ตัว
         valid_digits_list = [
             (d, conf) for d, conf in digits_list
             if (d.isdigit() and 1 <= len(d) <= 4) or self.is_valid_license_plate(d)
         ]
 
-        # เลือกตัวเลขที่มั่นใจที่สุดจาก valid_digits_list
         best_digits = max(valid_digits_list, key=lambda x: x[1])[0] if valid_digits_list else ""
-
-        # เลือกตัวอักษรและจังหวัด
         best_letters = max(letters_list, key=lambda x: x[1])[0] if letters_list else ""
         best_province = province_candidate[0]
 
-        combined_text = f"{best_letters}{best_digits}{best_province}"
+        # เว้นวรรคระหว่างทะเบียนกับจังหวัด
+        combined_text = f"{best_letters}{best_digits}"
+        if best_province:
+            combined_text += f" {best_province}"
+
         logger.info(f"✅ Selected combined text: '{combined_text}'")
         return combined_text
