@@ -20,9 +20,6 @@ class LicensePlateDetector:
             ("new_trained_model.pt", "custom_latest_new"),
             ("models/new_trained_model.pt", "custom_latest_new2"),
             ("models/thai_license_plate.pt", "custom_production"),
-            ("training/runs/thai_license_plate2/weights/best.pt", "custom_latest"),
-            ("training/models/thai_license_plate_final.pt", "custom_training"),
-            ("training/runs/thai_license_plate/weights/best.pt", "custom_best"),
             ("models/yolov8n.pt", "pretrained"),
             ("yolov8n.pt", "pretrained_fallback")
         ]
