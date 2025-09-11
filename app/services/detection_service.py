@@ -18,9 +18,6 @@ class LicensePlateDetector:
     def _load_best_available_model(self):
         model_paths = [
             ("new_trained_model.pt", "custom_latest_new"),
-            ("models/new_trained_model.pt", "custom_latest_new2"),
-            ("models/thai_license_plate.pt", "custom_production"),
-            ("models/yolov8n.pt", "pretrained"),
             ("yolov8n.pt", "pretrained_fallback")
         ]
         
