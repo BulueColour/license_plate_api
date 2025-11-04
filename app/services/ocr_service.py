@@ -36,6 +36,7 @@ class OCRService:
         "กรงทพมนวนคร": "กรุงเทพมหานคร",
         "กรงทพมหวนคร": "กรุงเทพมหานคร",
         "กรงททมนวนคร": "กรุงเทพมหานคร",
+        "กรงทพมททนคร": "กรุงเทพมหานคร",
         # เพิ่มการแก้ไขสำหรับกรุงเทพ - แก้จาก กกญจนบร -> กาญจนบุรี (ไม่ใช่กรุงเทพ)
         "กกญจนบร": "กาญจนบุรี",
         "กวญจนบร": "กาญจนบุรี", 
@@ -264,19 +265,35 @@ class OCRService:
     def preprocess_image(self, img_array):
         try:
             if len(img_array.shape) == 3:
+                color_img = img_array.copy()
                 gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
             else:
                 gray = img_array
 
             # ✅ Resize ให้ใหญ่พอ
             height, width = gray.shape
-            if width < 400 or height < 150:
-                scale = max(400 / width, 150 / height)
-                gray = cv2.resize(gray, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_CUBIC)
+            if width < 500 or height < 200:  # เพิ่มขนาดขั้นต่ำ
+                scale = max(500 / width, 200 / height) 
+                gray = cv2.resize(gray, (int(width * scale), int(height * scale)), 
+                                interpolation=cv2.INTER_CUBIC)
+                if color_img is not None:
+                    color_img = cv2.resize(color_img, (int(width * scale), int(height * scale)),
+                                           interpolation=cv2.INTER_CUBIC)
+                logger.info(f"Upscaled from {width}x{height} to {int(width*scale)}x{int(height*scale)}")
+
+            gray = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
 
             # ✅ CLAHE (ปรับ contrast แบบ local)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
             enhanced = clahe.apply(gray)
+
+            # ✅ เพิ่ม - Unsharp mask สำหรับความคมชัด
+            gaussian = cv2.GaussianBlur(enhanced, (0, 0), 2.0)
+            sharpened = cv2.addWeighted(enhanced, 1.5, gaussian, -0.5, 0)
+
+            # ✅ เพิ่ม - Morphological operations เพื่อเชื่อมตัวอักษร
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+            morph = cv2.morphologyEx(sharpened, cv2.MORPH_CLOSE, kernel)
 
             # ✅ Blur เล็กน้อยแล้ว sharpen
             blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
@@ -289,11 +306,12 @@ class OCRService:
                 cv2.THRESH_BINARY, 11, 2
             )
 
-            # ✅ Morphological cleaning
-            kernel = np.ones((2, 2), np.uint8)
+            # ✅ เพิ่ม - Inverse threshold (บางครั้งตัวอักษรอาจเป็นสีขาวบนพื้นดำ)
+            otsu_inv = cv2.bitwise_not(otsu)
+            adaptive_inv = cv2.bitwise_not(adaptive)
+
             morph_open = cv2.morphologyEx(otsu, cv2.MORPH_OPEN, kernel)
             morph_close = cv2.morphologyEx(otsu, cv2.MORPH_CLOSE, kernel)
-
             return [sharpened, otsu, adaptive, morph_open, morph_close]
 
         except Exception as e:
@@ -368,11 +386,15 @@ class OCRService:
         for i, (text1, conf1, bbox1) in enumerate(fragments):
             if i in used_fragments:
                 continue
+
+            thai_count1 = len(re.findall(r'[ก-ฮ]', text1))
                 
             # ลองรวมกับ fragments อื่น
             for j, (text2, conf2, bbox2) in enumerate(fragments):
                 if i == j or j in used_fragments:
                     continue
+
+                thai_count2 = len(re.findall(r'[ก-ฮ]', text2))
                     
                 # ลองรวมแบบต่างๆ
                 combinations = [
@@ -381,6 +403,9 @@ class OCRService:
                 ]
                 
                 for combined in combinations:
+
+                    thai_count_combined = len(re.findall(r'[ก-ฮ]', combined))
+
                     if self.is_valid_license_plate(combined):
                         avg_conf = (conf1 + conf2) / 2
                         combined_plates.append((combined, avg_conf))
@@ -394,6 +419,9 @@ class OCRService:
         
         # เพิ่ม fragments ที่เป็นป้ายทะเบียนสมบูรณ์อยู่แล้ว
         for i, (text, conf, bbox) in enumerate(fragments):
+
+            thai_count = len(re.findall(r'[ก-ฮ]', text))
+
             if i not in used_fragments and self.is_valid_license_plate(text):
                 combined_plates.append((text, conf))
                 logger.info(f"✅ Complete plate found: '{text}' (conf={conf:.3f})")
@@ -412,6 +440,10 @@ class OCRService:
         province_candidates = []
 
         for idx, img in enumerate(processed_images):
+
+            cv2.imwrite(f'/tmp/ocr_input_{idx}.jpg', img)
+            logger.info(f"Saved OCR input image: /tmp/ocr_input_{idx}.jpg")
+
             results = self.reader.readtext(
                 img,
                 width_ths=0.05, height_ths=0.05, paragraph=False, detail=1,

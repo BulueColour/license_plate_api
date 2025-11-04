@@ -90,7 +90,34 @@ class LicensePlateDetector:
 
             # crop detection
             crop = cv_image[y1:y2, x1:x2]
-            cv2.imshow("Cropped Plate", crop)
+
+            logger.info(f"YOLO crop shape: {crop.shape}, dtype: {crop.dtype}")
+            logger.info(f"YOLO crop min/max: {crop.min()}/{crop.max}")
+
+            cv2.imwrite('/t,p/yolo_original_crop.jpg', crop)
+            logger.info("Saved original YOLO crop to /tmp/yolo_original_crop.jpg")
+            
+            """
+            # เพิ่มคุณภาพของภาพก่อนส่งให้ ocr
+            h, w = crop.shape[:2]
+            if w < 300 or h < 100:
+                scale = max(300/w, 100/h)
+                crop = cv2.resize(crop, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_CUBIC)
+                logger.info(f"Resized crop from {w}x{h} tp {int(w*scale)}x{int(h*scale)}")
+
+            alpha = 1.3
+            beta = 20
+            crop = cv2.convertScaleAbs(crop, alpha=alpha, beta=beta)
+
+            kernel = np.array([[-1, -1, -1],
+                               [-1, 9, -1],
+                               [-1, -1, -1]])
+            crop = cv2.filter2D(crop, -1, kernel)
+
+            crop = cv2.fastNlMeansDenoisingColored(crop, None, 10, 10 ,7, 21)
+            """
+
+            cv2.imshow("Enhanced Crop", crop)
             cv2.waitKey(0)
 
             detected_plates = [{'image': crop, 'class_id': class_id, 'confidence': confidence}]
@@ -100,6 +127,36 @@ class LicensePlateDetector:
         except Exception as e:
             logger.error(f"Detection failed: {e}")
             return self._fallback_detection(image)
+
+    # def detect_license_plates(self, image):  # Non-YOLO version
+    #     """
+    #     ส่งภาพเต็มไปให้ OCR อ่านโดยตรง (ไม่ใช้ YOLO)
+    #     """
+    #     try:
+    #         logger.info("🚫 Skipping YOLO detection, sending full image to OCR")
+            
+    #         # แปลงเป็น OpenCV format
+    #         cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    #         h, w = cv_image.shape[:2]
+            
+    #         # (Optional) แสดงภาพที่จะส่งไป OCR
+    #         cv2.imshow("Full Image (No YOLO)", cv_image)
+    #         cv2.waitKey(0)
+    #         cv2.destroyAllWindows()
+            
+    #         # ส่งภาพเต็มกลับไป
+    #         detected_plates = [{
+    #             'image': cv_image,
+    #             'class_id': 0,
+    #             'confidence': 1.0,
+    #             'source': 'full_image_no_yolo'
+    #         }]
+            
+    #         return detected_plates
+
+    #     except Exception as e:
+    #         logger.error(f"Detection failed: {e}")
+    #         return []
     
     # def detect_license_plates(self, image): # unYOLO version
     #     """
